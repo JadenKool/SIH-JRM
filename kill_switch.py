@@ -135,7 +135,8 @@ def run_with_kill_switch(run, preview, preview_title):
             dialog.update_countdown()
         elif windows.shortcut_down():
             foreground = windows.user.GetForegroundWindow()
-            if foreground and (foreground == preview_window or
+            # Any worker window counts (preview or full-screen calibration target).
+            if foreground and (windows.pid(foreground) == worker.pid or
                                (browser_pid and windows.pid(foreground) == browser_pid)):
                 paused.set()
                 windows.hide_app_windows(browser_pid, preview_window)

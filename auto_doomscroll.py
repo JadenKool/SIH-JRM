@@ -19,6 +19,7 @@ URLS = [
     "https://www.youtube.com/shorts/",
 ]
 PREVIEW_WINDOW = "Doomscroller tracker"
+CALIBRATION_WINDOW = "Doomscroller calibration"
 CAMERA_SIZE = (1280, 720)   # requested webcam resolution
 PREVIEW_WIDTH = 280         # px; small so the feeds stay visible
 PREVIEW_BOTTOM_MARGIN = 90  # shortcut: assumes a ~48 px bottom taskbar + title bar; raise if the preview is cut off
@@ -82,7 +83,7 @@ def main():
 def run(preview, paused=None, stopping=None, chrome_pid=None, ready=None):
     if ready is not None:
         ready.wait()
-    from tracker import EyeTracker
+    from tracker import EyeTracker, draw_calibration_target
     try:
         from selenium.common.exceptions import WebDriverException
     except ModuleNotFoundError as exc:
@@ -123,7 +124,10 @@ def run(preview, paused=None, stopping=None, chrome_pid=None, ready=None):
             cv2.setWindowProperty(PREVIEW_WINDOW, cv2.WND_PROP_TOPMOST, 1)  # pop in front on startup
             cv2.moveWindow(PREVIEW_WINDOW, 0, pyautogui.size().height - preview_size[1] - PREVIEW_BOTTOM_MARGIN)
         s = new_state()
-        print("Calibrating: look at the screen for ~2 seconds. To recalibrate, click the preview, then press c.")
+        screen = tuple(pyautogui.size())
+        target_open = False
+        print("Calibrating: look at the dot in the middle of the screen. "
+              "To recalibrate later, click the preview, then press c.")
         print("Doomscroller armed. (Ctrl+C or mouse to top-left to stop)", flush=True)
         while paused is None or not paused.is_set():
             pyautogui.failSafeCheck()
@@ -143,14 +147,28 @@ def run(preview, paused=None, stopping=None, chrome_pid=None, ready=None):
                     browser.hide()
                 elif action == "scroll":
                     browser.scroll()
-            if preview and (paused is None or not paused.is_set()):
+            if paused is not None and paused.is_set():
+                continue
+            progress = tracker.calibration_progress
+            if progress is not None:
+                # Full-screen dot covers the preview and feeds so nothing pulls the eyes off-center.
+                if not target_open:
+                    cv2.namedWindow(CALIBRATION_WINDOW, cv2.WINDOW_NORMAL)
+                    cv2.setWindowProperty(CALIBRATION_WINDOW, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+                    cv2.setWindowProperty(CALIBRATION_WINDOW, cv2.WND_PROP_TOPMOST, 1)
+                    target_open = True
+                cv2.imshow(CALIBRATION_WINDOW, draw_calibration_target(*screen, progress))
+            elif target_open:
+                cv2.destroyWindow(CALIBRATION_WINDOW)
+                target_open = False
+                print("Calibrated.", flush=True)
+            if preview:
                 cv2.imshow(PREVIEW_WINDOW, cv2.resize(result["annotated_frame"], preview_size,
                                                       interpolation=cv2.INTER_AREA))
-                if cv2.waitKey(1) & 0xFF == ord("c"):
-                    tracker.recalibrate()
+            if cv2.waitKey(1) & 0xFF == ord("c"):
+                tracker.recalibrate()
         if not stopping.is_set():
-            if preview:
-                cv2.destroyAllWindows()
+            cv2.destroyAllWindows()
             try:
                 browser.freeze_feeds(stopping)
             except WebDriverException:
@@ -165,8 +183,7 @@ def run(preview, paused=None, stopping=None, chrome_pid=None, ready=None):
         cap.release()
         if tracker is not None:
             tracker.close()
-        if preview:
-            cv2.destroyAllWindows()
+        cv2.destroyAllWindows()  # preview and/or calibration target
         if browser is not None:
             browser.close()
 
