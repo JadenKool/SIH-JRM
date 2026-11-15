@@ -10,14 +10,15 @@ import time
 
 # ---------------- Tunables (adjust for venue lighting) ----------------
 SCROLL_INTERVAL = 4.0      # seconds between "Down" presses while you're looking
-LOAD_DELAY = 4.0           # seconds after opening the feeds before the first scroll
-RETRIGGER_COOLDOWN = 10.0  # seconds of continuous look-away before tabs may open again
+LOAD_DELAY = 4.0           # seconds after showing the feeds before the first scroll
+RETRIGGER_COOLDOWN = 10.0  # seconds away before the next glance starts a new viewing session
 FRAMES_TO_LOOK = 3         # consecutive gaze hits before is_looking = True
 FRAMES_TO_AWAY = 15        # consecutive gaze misses (~0.5 s at 30 FPS) before is_looking = False
 URLS = [
     "https://www.instagram.com/reels/",
     "https://www.youtube.com/shorts/",
 ]
+PREVIEW_WINDOW = "Doomscroller tracker"
 # ----------------------------------------------------------------------
 
 
@@ -49,7 +50,7 @@ def step(s, face_seen, now):
 
     if (not s["is_looking"] and s["tabs_opened"] and s["away_since"] is not None
             and now - s["away_since"] >= RETRIGGER_COOLDOWN):
-        s["tabs_opened"] = False  # looked away long enough: next glance reloads the feeds
+        s["tabs_opened"] = False  # next glance starts a new session with the same feeds
 
     if s["is_looking"] and now >= s["next_scroll"]:
         actions.append("scroll")
@@ -60,8 +61,8 @@ def step(s, face_seen, now):
 def main():
     parser = argparse.ArgumentParser(description="Scroll Reels and Shorts when you look at the screen.")
     parser.add_argument("--selftest", action="store_true", help="Test the state machine without a webcam or browser.")
-    parser.add_argument("--preview", action="store_true",
-                        help="Show the tracker preview. It can take focus from Chrome and cover part of a feed.")
+    parser.add_argument("--no-preview", dest="preview", action="store_false",
+                        help="Hide the tracker preview (shown on top by default). It can cover part of a feed.")
     args = parser.parse_args()
     if args.selftest:
         selftest()
@@ -90,6 +91,12 @@ def main():
         if not cap.isOpened():
             sys.exit("No webcam found (or another app is using it).")
         tracker = EyeTracker()
+        print("Preparing Instagram Reels and YouTube Shorts in Chrome...", flush=True)
+        browser = SplitBrowser()
+        browser.prepare_feeds(URLS)
+        if args.preview:
+            cv2.namedWindow(PREVIEW_WINDOW)
+            cv2.setWindowProperty(PREVIEW_WINDOW, cv2.WND_PROP_TOPMOST, 1)  # pop in front on startup
         s = new_state()
         print("Doomscroller armed. Look at the screen... (Ctrl+C or mouse to top-left to stop)")
         while True:
@@ -100,16 +107,16 @@ def main():
             result = tracker.process_frame(frame)
             for action in step(s, result["is_looking"], time.monotonic()):
                 print(f"[{time.strftime('%H:%M:%S')}] {action}")
-                if action == "open":
-                    if browser is None:
-                        browser = SplitBrowser()
-                    browser.open_feeds(URLS)
-                    # Starting Chrome and arranging the windows can take time.
-                    s["next_scroll"] = time.monotonic() + LOAD_DELAY
+                if action in ("open", "resume"):
+                    browser.show()
+                    delay = LOAD_DELAY if action == "open" else SCROLL_INTERVAL
+                    s["next_scroll"] = max(s["next_scroll"], time.monotonic() + delay)
+                elif action == "away":
+                    browser.hide()
                 elif action == "scroll":
                     browser.scroll()
             if args.preview:
-                cv2.imshow("Doomscroller tracker", result["annotated_frame"])
+                cv2.imshow(PREVIEW_WINDOW, result["annotated_frame"])
                 cv2.waitKey(1)
     except (KeyboardInterrupt, pyautogui.FailSafeException):
         print("\nDoomscroller stopped. Go touch grass.")
@@ -138,7 +145,7 @@ def selftest():
         return out
 
     assert run(True, 2) == []                     # 2 frames: not enough
-    assert run(True, 1) == ["open"]               # 3rd frame: tabs open once
+    assert run(True, 1) == ["open"]               # 3rd frame: show the preloaded feeds
     assert run(True, 119) == []                   # still inside LOAD_DELAY, no re-open
     assert run(True, 10) == ["scroll"]            # first scroll after load delay
     assert run(True, 1) + run(False, 14) == []    # 14 missed frames: still looking
@@ -147,9 +154,9 @@ def selftest():
     assert run(False, 280) == [] and s["tabs_opened"]
     run(False, 30)
     assert not s["tabs_opened"]                   # 10 s away: cooldown expired
-    assert run(True, 3) == ["open"]               # next glance reloads the feeds
+    assert run(True, 3) == ["open"]               # next glance starts a new viewing session
     run(False, 15)
-    assert run(True, 3) == ["resume"]             # quick return: no tab-bombing
+    assert run(True, 3) == ["resume"]             # quick return: resume the existing session
     print("selftest OK")
 
 
