@@ -71,6 +71,17 @@ def main():
         selftest()
         return
 
+    if sys.platform == "win32":
+        from kill_switch import run_with_kill_switch
+
+        run_with_kill_switch(run, args.preview, PREVIEW_WINDOW)
+    else:
+        run(args.preview)
+
+
+def run(preview, paused=None, stopping=None, chrome_pid=None, ready=None):
+    if ready is not None:
+        ready.wait()
     from tracker import EyeTracker
     try:
         from selenium.common.exceptions import WebDriverException
@@ -101,8 +112,10 @@ def main():
         tracker = EyeTracker()
         print("Preparing Instagram Reels and YouTube Shorts in Chrome...", flush=True)
         browser = SplitBrowser()
+        if chrome_pid is not None:
+            chrome_pid.value = browser.driver.capabilities["goog:processID"]
         browser.prepare_feeds(URLS)
-        if args.preview:
+        if preview:
             cam_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640
             cam_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480
             preview_size = (PREVIEW_WIDTH, int(PREVIEW_WIDTH * cam_h / cam_w))
@@ -111,14 +124,16 @@ def main():
             cv2.moveWindow(PREVIEW_WINDOW, 0, pyautogui.size().height - preview_size[1] - PREVIEW_BOTTOM_MARGIN)
         s = new_state()
         print("Calibrating: look at the screen for ~2 seconds. To recalibrate, click the preview, then press c.")
-        print("Doomscroller armed. (Ctrl+C or mouse to top-left to stop)")
-        while True:
+        print("Doomscroller armed. (Ctrl+C or mouse to top-left to stop)", flush=True)
+        while paused is None or not paused.is_set():
             pyautogui.failSafeCheck()
             ok, frame = cap.read()
-            if not ok:
+            if not ok or (paused is not None and paused.is_set()):
                 continue
             result = tracker.process_frame(frame)
             for action in step(s, result["is_looking"], time.monotonic()):
+                if paused is not None and paused.is_set():
+                    break
                 print(f"[{time.strftime('%H:%M:%S')}] {action}")
                 if action in ("open", "resume"):
                     browser.show()
@@ -128,11 +143,19 @@ def main():
                     browser.hide()
                 elif action == "scroll":
                     browser.scroll()
-            if args.preview:
+            if preview and (paused is None or not paused.is_set()):
                 cv2.imshow(PREVIEW_WINDOW, cv2.resize(result["annotated_frame"], preview_size,
                                                       interpolation=cv2.INTER_AREA))
                 if cv2.waitKey(1) & 0xFF == ord("c"):
                     tracker.recalibrate()
+        if not stopping.is_set():
+            if preview:
+                cv2.destroyAllWindows()
+            try:
+                browser.freeze_feeds(stopping)
+            except WebDriverException:
+                pass  # The countdown and shutdown are independent of Chrome.
+            stopping.wait()
     except (KeyboardInterrupt, pyautogui.FailSafeException):
         print("\nDoomscroller stopped. Go touch grass.")
     except WebDriverException as exc:
@@ -142,7 +165,7 @@ def main():
         cap.release()
         if tracker is not None:
             tracker.close()
-        if args.preview:
+        if preview:
             cv2.destroyAllWindows()
         if browser is not None:
             browser.close()
