@@ -18,6 +18,7 @@ URLS = [
     "https://www.instagram.com/reels/",
     "https://www.youtube.com/shorts/",
 ]
+PREVIEW_WINDOW = "Doomscroller tracker"
 # ----------------------------------------------------------------------
 
 
@@ -60,8 +61,8 @@ def step(s, face_seen, now):
 def main():
     parser = argparse.ArgumentParser(description="Scroll Reels and Shorts when you look at the screen.")
     parser.add_argument("--selftest", action="store_true", help="Test the state machine without a webcam or browser.")
-    parser.add_argument("--preview", action="store_true",
-                        help="Show the tracker preview. It can take focus from Chrome and cover part of a feed.")
+    parser.add_argument("--no-preview", dest="preview", action="store_false",
+                        help="Hide the tracker preview (shown on top by default). It can cover part of a feed.")
     args = parser.parse_args()
     if args.selftest:
         selftest()
@@ -93,6 +94,9 @@ def main():
         print("Preparing Instagram Reels and YouTube Shorts in Chrome...", flush=True)
         browser = SplitBrowser()
         browser.prepare_feeds(URLS)
+        if args.preview:
+            cv2.namedWindow(PREVIEW_WINDOW)
+            cv2.setWindowProperty(PREVIEW_WINDOW, cv2.WND_PROP_TOPMOST, 1)  # pop in front on startup
         s = new_state()
         print("Doomscroller armed. Look at the screen... (Ctrl+C or mouse to top-left to stop)")
         while True:
@@ -112,7 +116,7 @@ def main():
                 elif action == "scroll":
                     browser.scroll()
             if args.preview:
-                cv2.imshow("Doomscroller tracker", result["annotated_frame"])
+                cv2.imshow(PREVIEW_WINDOW, result["annotated_frame"])
                 cv2.waitKey(1)
     except (KeyboardInterrupt, pyautogui.FailSafeException):
         print("\nDoomscroller stopped. Go touch grass.")

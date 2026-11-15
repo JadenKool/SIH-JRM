@@ -30,4 +30,4 @@ On Windows, run `python auto_doomscroll.py` from the activated environment. The 
 
 Sign in to Instagram in the app's Chrome window if prompted. Chrome saves that session in a dedicated profile for future runs.
 
-Run `python auto_doomscroll.py --selftest` to test the timing without a webcam, browser, or third-party packages. Add `--preview` to show the tracker window for a demo. It can cover part of the browser windows.
+Run `python auto_doomscroll.py --selftest` to test the timing without a webcam, browser, or third-party packages. The tracker preview window opens by default and stays on top; add `--no-preview` to hide it if it covers part of the browser windows.
