@@ -33,6 +33,7 @@ EXIT_MARGIN_DEGREES = 6.0     # once looking, allow this much extra before switc
 EYE_DEGREES_PER_RATIO = 120.0
 MIN_EYE_OPENNESS = 0.10       # lid gap / eye width; below this (blink, squint) skip that eye. Slim eyes ~0.15-0.2
 SMOOTHING = 0.4               # weight of the newest frame (lower = steadier but slower)
+CALIBRATION_SETTLE_FRAMES = 20  # ~0.7 s to find the calibration dot before sampling starts
 CALIBRATION_FRAMES = 45       # ~1.5 s at 30 FPS
 # -------------------------------------------
 
@@ -104,6 +105,7 @@ class GazeFilter:
         self.center = None    # (yaw, pitch, iris) while looking at the screen
         self.samples = []
         self.smoothed = None
+        self.settle = 0       # face frames seen since calibration started
 
     def lost(self):
         self.smoothed = None  # face gone: don't blend stale angles into the next sighting
@@ -111,7 +113,9 @@ class GazeFilter:
     def update(self, yaw, pitch, iris):
         """Feed one frame. Returns None while calibrating, else (gaze_yaw, head_yaw, pitch) from center."""
         if self.center is None:
-            if iris is not None:
+            if self.settle < CALIBRATION_SETTLE_FRAMES:
+                self.settle += 1  # eyes still travelling to the dot
+            elif iris is not None:
                 self.samples.append((yaw, pitch, iris))
                 if len(self.samples) >= CALIBRATION_FRAMES:
                     self.center = tuple(float(v) for v in np.median(self.samples, axis=0))
@@ -127,6 +131,24 @@ class GazeFilter:
         head_yaw, pitch_rel, iris_rel = (s - c for s, c in zip(self.smoothed, self.center))
         # Head turned nose-left (+yaw) while watching the screen moves the iris right (+iris): cancels.
         return head_yaw - EYE_DEGREES_PER_RATIO * iris_rel, head_yaw, pitch_rel
+
+
+def draw_calibration_target(width, height, progress):
+    """Black screen with a big dot in the exact middle and a ring that fills as calibration runs."""
+    image = np.zeros((height, width, 3), np.uint8)
+    center = (width // 2, height // 2)
+    radius = max(40, min(width, height) // 14)
+    cv2.circle(image, center, radius, (70, 70, 70), -1, cv2.LINE_AA)
+    if progress > 0:
+        cv2.ellipse(image, center, (radius, radius), -90, 0, 360 * min(progress, 1.0),
+                    (0, 200, 255), max(6, radius // 6), cv2.LINE_AA)
+    cv2.circle(image, center, max(10, radius // 3), (255, 255, 255), -1, cv2.LINE_AA)
+    text = "Look at the dot"
+    scale = height / 900
+    (text_w, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, 2)
+    cv2.putText(image, text, (center[0] - text_w // 2, center[1] + radius * 2 + int(20 * scale)),
+                cv2.FONT_HERSHEY_SIMPLEX, scale, (200, 200, 200), 2, cv2.LINE_AA)
+    return image
 
 
 def decide(gaze_yaw, head_yaw, pitch, was_looking):
@@ -152,6 +174,13 @@ class EyeTracker:
     def recalibrate(self):
         """Forget the center pose; the next CALIBRATION_FRAMES face frames set a new one."""
         self.filter.reset()
+
+    @property
+    def calibration_progress(self):
+        """None once calibrated, else 0.0-1.0 for the on-screen target."""
+        if self.filter.center is not None:
+            return None
+        return len(self.filter.samples) / CALIBRATION_FRAMES
 
     def process_frame(self, frame):
         """Return raw per-frame gaze and an annotated mirrored frame; the caller debounces."""
