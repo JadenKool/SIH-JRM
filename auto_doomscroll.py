@@ -7,17 +7,16 @@ Stop:       Ctrl+C in the terminal, or slam the mouse into the TOP-LEFT corner.
 import argparse
 import sys
 import time
-import webbrowser
 
 # ---------------- Tunables (adjust for venue lighting) ----------------
 SCROLL_INTERVAL = 4.0      # seconds between "Down" presses while you're looking
-LOAD_DELAY = 3.5           # seconds to let Reels/Shorts load before the first scroll
+LOAD_DELAY = 4.0           # seconds after opening the feeds before the first scroll
 RETRIGGER_COOLDOWN = 10.0  # seconds of continuous look-away before tabs may open again
 FRAMES_TO_LOOK = 3         # consecutive gaze hits before is_looking = True
 FRAMES_TO_AWAY = 15        # consecutive gaze misses (~0.5 s at 30 FPS) before is_looking = False
 URLS = [
     "https://www.instagram.com/reels/",
-    "https://www.youtube.com/shorts/",  # opened last, so this tab has focus and receives the Down presses
+    "https://www.youtube.com/shorts/",
 ]
 # ----------------------------------------------------------------------
 
@@ -50,7 +49,7 @@ def step(s, face_seen, now):
 
     if (not s["is_looking"] and s["tabs_opened"] and s["away_since"] is not None
             and now - s["away_since"] >= RETRIGGER_COOLDOWN):
-        s["tabs_opened"] = False  # looked away long enough: next glance opens fresh tabs
+        s["tabs_opened"] = False  # looked away long enough: next glance reloads the feeds
 
     if s["is_looking"] and now >= s["next_scroll"]:
         actions.append("scroll")
@@ -62,13 +61,21 @@ def main():
     parser = argparse.ArgumentParser(description="Scroll Reels and Shorts when you look at the screen.")
     parser.add_argument("--selftest", action="store_true", help="Test the state machine without a webcam or browser.")
     parser.add_argument("--preview", action="store_true",
-                        help="Show the tracker preview. It can take focus from the browser and intercept Down presses.")
+                        help="Show the tracker preview. It can take focus from Chrome and cover part of a feed.")
     args = parser.parse_args()
     if args.selftest:
         selftest()
         return
 
     from tracker import EyeTracker
+    try:
+        from selenium.common.exceptions import WebDriverException
+    except ModuleNotFoundError as exc:
+        if exc.name != "selenium":
+            raise
+        sys.exit("Install browser dependencies: python -m pip install -r requirements.txt")
+
+    from split_browser import SplitBrowser
 
     import cv2
     import pyautogui
@@ -78,6 +85,7 @@ def main():
     # DirectShow opens much faster than the default backend on Windows
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW) if sys.platform == "win32" else cv2.VideoCapture(0)
     tracker = None
+    browser = None
     try:
         if not cap.isOpened():
             sys.exit("No webcam found (or another app is using it).")
@@ -85,6 +93,7 @@ def main():
         s = new_state()
         print("Doomscroller armed. Look at the screen... (Ctrl+C or mouse to top-left to stop)")
         while True:
+            pyautogui.failSafeCheck()
             ok, frame = cap.read()
             if not ok:
                 continue
@@ -92,21 +101,29 @@ def main():
             for action in step(s, result["is_looking"], time.monotonic()):
                 print(f"[{time.strftime('%H:%M:%S')}] {action}")
                 if action == "open":
-                    for url in URLS:
-                        webbrowser.open_new_tab(url)
+                    if browser is None:
+                        browser = SplitBrowser()
+                    browser.open_feeds(URLS)
+                    # Starting Chrome and arranging the windows can take time.
+                    s["next_scroll"] = time.monotonic() + LOAD_DELAY
                 elif action == "scroll":
-                    pyautogui.press("down")
+                    browser.scroll()
             if args.preview:
                 cv2.imshow("Doomscroller tracker", result["annotated_frame"])
                 cv2.waitKey(1)
     except (KeyboardInterrupt, pyautogui.FailSafeException):
         print("\nDoomscroller stopped. Go touch grass.")
+    except WebDriverException as exc:
+        sys.exit(f"Could not control Chrome: {exc.msg}\n"
+                 "Check that Chrome is installed and the Doomscroller windows are open.")
     finally:
         cap.release()
         if tracker is not None:
             tracker.close()
-            if args.preview:
-                cv2.destroyAllWindows()
+        if args.preview:
+            cv2.destroyAllWindows()
+        if browser is not None:
+            browser.close()
 
 
 def selftest():
@@ -122,7 +139,7 @@ def selftest():
 
     assert run(True, 2) == []                     # 2 frames: not enough
     assert run(True, 1) == ["open"]               # 3rd frame: tabs open once
-    assert run(True, 100) == []                   # still inside LOAD_DELAY, no re-open
+    assert run(True, 119) == []                   # still inside LOAD_DELAY, no re-open
     assert run(True, 10) == ["scroll"]            # first scroll after load delay
     assert run(True, 1) + run(False, 14) == []    # 14 missed frames: still looking
     assert run(False, 1) == ["away"]              # 15th: paused
@@ -130,7 +147,7 @@ def selftest():
     assert run(False, 280) == [] and s["tabs_opened"]
     run(False, 30)
     assert not s["tabs_opened"]                   # 10 s away: cooldown expired
-    assert run(True, 3) == ["open"]               # next glance re-opens
+    assert run(True, 3) == ["open"]               # next glance reloads the feeds
     run(False, 15)
     assert run(True, 3) == ["resume"]             # quick return: no tab-bombing
     print("selftest OK")
