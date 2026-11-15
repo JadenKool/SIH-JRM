@@ -17,4 +17,4 @@ python -m pip install -r requirements.txt
 
 `python --version` should report Python 3.12.x.
 
-Run `python auto_doomscroll.py` to start, or `python auto_doomscroll.py --selftest` to test without a webcam, browser, or third-party packages. Add `--preview` to show the tracker for a demo; the preview may take keyboard focus from the browser and intercept the Down presses.
+Run `python auto_doomscroll.py` to start, or `python auto_doomscroll.py --selftest` to test without a webcam, browser, or third-party packages. The tracker preview window opens by default and stays on top; add `--no-preview` to hide it if it takes keyboard focus from the browser and intercepts the Down presses.
