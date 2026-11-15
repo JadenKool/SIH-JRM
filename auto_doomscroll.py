@@ -19,6 +19,9 @@ URLS = [
     "https://www.youtube.com/shorts/",
 ]
 PREVIEW_WINDOW = "Doomscroller tracker"
+CAMERA_SIZE = (1280, 720)   # requested webcam resolution
+PREVIEW_WIDTH = 280         # px; small so the feeds stay visible
+PREVIEW_BOTTOM_MARGIN = 90  # shortcut: assumes a ~48 px bottom taskbar + title bar; raise if the preview is cut off
 # ----------------------------------------------------------------------
 
 
@@ -96,6 +99,11 @@ def run(preview, paused=None, stopping=None, chrome_pid=None, ready=None):
 
     # DirectShow opens much faster than the default backend on Windows
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW) if sys.platform == "win32" else cv2.VideoCapture(0)
+    # More pixels per eye = steadier iris tracking, especially for narrow eyes. MJPG keeps 30 FPS
+    # on webcams that drop to ~10 FPS at 720p otherwise; cameras that can't do 720p ignore this.
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_SIZE[0])
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_SIZE[1])
     tracker = None
     browser = None
     try:
@@ -108,11 +116,15 @@ def run(preview, paused=None, stopping=None, chrome_pid=None, ready=None):
             chrome_pid.value = browser.driver.capabilities["goog:processID"]
         browser.prepare_feeds(URLS)
         if preview:
+            cam_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640
+            cam_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480
+            preview_size = (PREVIEW_WIDTH, int(PREVIEW_WIDTH * cam_h / cam_w))
             cv2.namedWindow(PREVIEW_WINDOW)
             cv2.setWindowProperty(PREVIEW_WINDOW, cv2.WND_PROP_TOPMOST, 1)  # pop in front on startup
+            cv2.moveWindow(PREVIEW_WINDOW, 0, pyautogui.size().height - preview_size[1] - PREVIEW_BOTTOM_MARGIN)
         s = new_state()
-        print("Doomscroller armed. Look at the screen... (Ctrl+C or mouse to top-left to stop)",
-              flush=True)
+        print("Calibrating: look at the screen for ~2 seconds. To recalibrate, click the preview, then press c.")
+        print("Doomscroller armed. (Ctrl+C or mouse to top-left to stop)", flush=True)
         while paused is None or not paused.is_set():
             pyautogui.failSafeCheck()
             ok, frame = cap.read()
@@ -132,8 +144,10 @@ def run(preview, paused=None, stopping=None, chrome_pid=None, ready=None):
                 elif action == "scroll":
                     browser.scroll()
             if preview and (paused is None or not paused.is_set()):
-                cv2.imshow(PREVIEW_WINDOW, result["annotated_frame"])
-                cv2.waitKey(1)
+                cv2.imshow(PREVIEW_WINDOW, cv2.resize(result["annotated_frame"], preview_size,
+                                                      interpolation=cv2.INTER_AREA))
+                if cv2.waitKey(1) & 0xFF == ord("c"):
+                    tracker.recalibrate()
         if not stopping.is_set():
             if preview:
                 cv2.destroyAllWindows()
