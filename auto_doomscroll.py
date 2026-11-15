@@ -111,9 +111,29 @@ def run(preview, paused=None, stopping=None, chrome_pid=None, ready=None):
             cv2.namedWindow(PREVIEW_WINDOW)
             cv2.setWindowProperty(PREVIEW_WINDOW, cv2.WND_PROP_TOPMOST, 1)  # pop in front on startup
         s = new_state()
+<<<<<<< Updated upstream
         print("Doomscroller armed. Look at the screen... (Ctrl+C or mouse to top-left to stop)",
               flush=True)
         while paused is None or not paused.is_set():
+=======
+        print("Calibrating: look at the screen for ~2 seconds. To recalibrate, click the preview, then press c.")
+        print("Doomscroller armed. (Ctrl+C or mouse to top-left to stop)", flush=True)
+        while stopping is None or not stopping.is_set():
+            if paused is not None and paused.is_set():
+                pause_started = time.monotonic()
+                frozen = browser.freeze_feeds(paused, stopping)
+                while paused.is_set() and not stopping.wait(0.02):
+                    if preview:
+                        cv2.waitKey(1)
+                if stopping.is_set():
+                    break
+                browser.resume_feeds(frozen)
+                elapsed = time.monotonic() - pause_started
+                s["next_scroll"] += elapsed
+                if s["away_since"] is not None:
+                    s["away_since"] += elapsed
+                continue
+>>>>>>> Stashed changes
             pyautogui.failSafeCheck()
             ok, frame = cap.read()
             if not ok or (paused is not None and paused.is_set()):
@@ -132,6 +152,7 @@ def run(preview, paused=None, stopping=None, chrome_pid=None, ready=None):
                 elif action == "scroll":
                     browser.scroll()
             if preview and (paused is None or not paused.is_set()):
+<<<<<<< Updated upstream
                 cv2.imshow(PREVIEW_WINDOW, result["annotated_frame"])
                 cv2.waitKey(1)
         if not stopping.is_set():
@@ -142,6 +163,12 @@ def run(preview, paused=None, stopping=None, chrome_pid=None, ready=None):
             except WebDriverException:
                 pass  # The countdown and shutdown are independent of Chrome.
             stopping.wait()
+=======
+                cv2.imshow(PREVIEW_WINDOW, cv2.resize(result["annotated_frame"], preview_size,
+                                                      interpolation=cv2.INTER_AREA))
+                if cv2.waitKey(1) & 0xFF == ord("c"):
+                    tracker.recalibrate()
+>>>>>>> Stashed changes
     except (KeyboardInterrupt, pyautogui.FailSafeException):
         print("\nDoomscroller stopped. Go touch grass.")
     except WebDriverException as exc:

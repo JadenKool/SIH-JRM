@@ -19,6 +19,7 @@ class Windows:
         self.window_callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         self.user.EnumWindows.argtypes = (self.window_callback, wintypes.LPARAM)
         self.user.GetForegroundWindow.restype = wintypes.HWND
+        self.user.SetForegroundWindow.argtypes = (wintypes.HWND,)
         self.user.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
         self.user.GetAsyncKeyState.argtypes = (ctypes.c_int,)
         self.user.GetAsyncKeyState.restype = ctypes.c_short
@@ -42,8 +43,9 @@ class Windows:
         # Virtual key codes for Ctrl, Shift and Q. Reading them consumes no key events.
         return all(self.user.GetAsyncKeyState(key) & 0x8000 for key in (0x11, 0x10, 0x51))
 
-    def hide_app_windows(self, chrome_pid, preview):
+    def hide_app_windows(self, chrome_pid, preview, hidden):
         if preview and self.user.IsWindowVisible(preview):
+            hidden[preview] = self.pid(preview)
             self.user.ShowWindowAsync(preview, 0)  # SW_HIDE
         if not chrome_pid:
             return
@@ -51,6 +53,7 @@ class Windows:
         @self.window_callback
         def hide(window, _):
             if self.user.IsWindowVisible(window) and self.pid(window) == chrome_pid:
+                hidden[window] = chrome_pid
                 self.user.ShowWindowAsync(window, 0)
             return True
 
@@ -58,8 +61,9 @@ class Windows:
 
 
 class DestructionDialog:
-    def __init__(self, root):
+    def __init__(self, root, resume):
         self.root = root
+        self.resume = resume
         self.deadline = None
         root.title("Kill Switch")
         root.configure(bg="#10090c", highlightbackground="#e63c51", highlightthickness=2)
@@ -82,6 +86,8 @@ class DestructionDialog:
 
     def show(self):
         self.deadline = time.monotonic() + COUNTDOWN_SECONDS
+        self.entry.delete(0, tk.END)
+        self.error.config(text="")
         width, height = 420, 245
         x = (self.root.winfo_screenwidth() - width) // 2
         y = (self.root.winfo_screenheight() - height) // 2
@@ -93,12 +99,18 @@ class DestructionDialog:
     def update_countdown(self):
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
-            self.root.quit()
+            self.deadline = None
+            self.root.withdraw()
+            self.resume()
         else:
             self.timer.config(text=f"{math.ceil(remaining):02d}")
 
     def verify(self, _):
-        if time.monotonic() >= self.deadline or self.entry.get() == "sih":
+        if self.deadline is None:
+            return "break"
+        if time.monotonic() >= self.deadline:
+            self.update_countdown()
+        elif self.entry.get() == "sih":
             self.root.quit()
         else:
             self.error.config(text="INVALID DESTRUCTION CODE")
@@ -110,19 +122,33 @@ def run_with_kill_switch(run, preview, preview_title):
     windows = Windows()
     root = tk.Tk()
     root.withdraw()
-    dialog = DestructionDialog(root)
     context = multiprocessing.get_context("spawn")
     paused = context.Event()
     stopping = context.Event()
     chrome_pid = context.Value("L", 0, lock=False)
     ready = context.Event()
     worker = context.Process(target=run, args=(preview, paused, stopping, chrome_pid, ready))
+    hidden = {}
+    previous_foreground = None
+    shortcut_was_down = False
+
+    def resume():
+        for window, pid in hidden.items():
+            if windows.pid(window) == pid:
+                windows.user.ShowWindowAsync(window, 8)  # SW_SHOWNA
+        hidden.clear()
+        if previous_foreground:
+            windows.user.SetForegroundWindow(previous_foreground)
+        paused.clear()
+
+    dialog = DestructionDialog(root, resume)
     job = windows.kernel.CreateJobObjectW(None, None)
     if not job:
         root.destroy()
         raise ctypes.WinError(ctypes.get_last_error())
 
     def poll():
+        nonlocal previous_foreground, shortcut_was_down
         if not worker.is_alive() and not paused.is_set():
             root.quit()
             return
@@ -130,16 +156,19 @@ def run_with_kill_switch(run, preview, preview_title):
         if windows.pid(preview_window) != worker.pid:
             preview_window = None
         browser_pid = chrome_pid.value
+        shortcut_down = windows.shortcut_down()
         if paused.is_set():
-            windows.hide_app_windows(browser_pid, preview_window)
+            windows.hide_app_windows(browser_pid, preview_window, hidden)
             dialog.update_countdown()
-        elif windows.shortcut_down():
+        elif shortcut_down and not shortcut_was_down:
             foreground = windows.user.GetForegroundWindow()
             if foreground and (foreground == preview_window or
                                (browser_pid and windows.pid(foreground) == browser_pid)):
                 paused.set()
-                windows.hide_app_windows(browser_pid, preview_window)
+                previous_foreground = foreground
+                windows.hide_app_windows(browser_pid, preview_window, hidden)
                 dialog.show()
+        shortcut_was_down = shortcut_down
         root.after(POLL_MS, poll)
 
     try:

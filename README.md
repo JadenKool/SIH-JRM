@@ -36,9 +36,7 @@ Run `python auto_doomscroll.py --selftest` to test the timing without a webcam, 
 
 Launch the doomscroller and focus either of its Chrome feed windows or the tracker preview. Press **Ctrl + Shift + Q**. The app pauses automatic scrolling and eye tracking, hides its windows, and opens the destruction prompt. The prompt has no cancel option.
 
-Restart the app between these checks.
-
-1. Enter `sih` and press Enter. The app and its feed windows should close immediately.
-2. Enter `SIH` or any other incorrect code and press Enter. The prompt should show **INVALID DESTRUCTION CODE** and close at the original 15-second deadline.
-3. Leave the prompt alone. The app should close after 15 seconds.
-4. With the app running, press the shortcut while another app is focused. The prompt should open only when you press it with a Doomscroller window focused.
+1. Enter `SIH` or any other incorrect code and press Enter. The prompt should show **INVALID DESTRUCTION CODE**, then dismiss at the original 15-second deadline. The doomscroller should resume.
+2. Press the shortcut again and leave the prompt alone. After 15 seconds, the prompt should dismiss and the doomscroller should resume again.
+3. Press the shortcut again, enter `sih`, and press Enter before the timer runs out. The app and its feed windows should close immediately.
+4. After restarting the app, press the shortcut while another app is focused. The prompt should open only when you press it with a Doomscroller window focused.
