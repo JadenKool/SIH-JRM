@@ -54,5 +54,15 @@ class SplitBrowser:
             driver.switch_to.window(window)
             ActionChains(driver).send_keys(Keys.ARROW_DOWN).perform()
 
+    def freeze_feeds(self, stopping):
+        for window in self.windows:
+            if stopping.is_set():
+                break
+            self.driver.switch_to.window(window)
+            self.driver.execute_script(
+                "document.querySelectorAll('video, audio').forEach(media => media.pause());"
+            )
+            self.driver.execute_cdp_cmd("Page.setWebLifecycleState", {"state": "frozen"})
+
     def close(self):
         self.driver.quit()
