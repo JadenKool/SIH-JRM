@@ -31,17 +31,16 @@ POSE_MODEL = np.array([
 ], dtype=np.float64)
 
 
-def _iris_in_band(landmarks, eye):
+def _iris_ratios(landmarks, eye):
     inner, outer, iris, upper, lower = (landmarks[i] for i in eye)
     width = abs(inner.x - outer.x)
     height = lower.y - upper.y
     if width <= 0 or height <= 0:
-        return False
+        return None
     # Measured from the smaller x; the corner order does not affect the ratio.
     horizontal = (iris.x - min(inner.x, outer.x)) / width
     vertical = (iris.y - upper.y) / height
-    return (IRIS_H_MIN <= horizontal <= IRIS_H_MAX
-            and IRIS_V_MIN <= vertical <= IRIS_V_MAX)
+    return horizontal, vertical
 
 
 def _head_yaw(landmarks, width, height):
@@ -72,22 +71,42 @@ class EyeTracker:
         rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
         faces = self.mesh.process(rgb).multi_face_landmarks
         is_looking = False
-        label = "No face"
+        labels = ["No face detected"]
         if faces:
             landmarks = faces[0].landmark
             yaw = _head_yaw(landmarks, width, height)
-            is_looking = (yaw is not None and abs(yaw) <= MAX_YAW_DEGREES
-                          and all(_iris_in_band(landmarks, eye) for eye in (EYE_A, EYE_B)))
-            label = "Looking" if is_looking else "Away"
-            if yaw is not None:
-                label += f" | yaw {yaw:+.0f} deg"
-            for eye in (EYE_A, EYE_B):
+            yaw_ok = yaw is not None and abs(yaw) <= MAX_YAW_DEGREES
+            yaw_label = "Yaw unavailable" if yaw is None else (
+                f"Yaw {yaw:+.0f} deg (limit {MAX_YAW_DEGREES:g})"
+            )
+            if not yaw_ok:
+                yaw_label += " - failed"
+            labels = [yaw_label]
+            is_looking = yaw_ok
+            for name, eye in (("A", EYE_A), ("B", EYE_B)):
                 iris = landmarks[eye[2]]
                 cv2.circle(annotated, (int(iris.x * width), int(iris.y * height)),
                            3, (255, 255, 0), -1)
+                ratios = _iris_ratios(landmarks, eye)
+                if ratios is None:
+                    labels.append(f"Eye {name}: lid or corner landmarks unavailable")
+                    is_looking = False
+                    continue
+                horizontal, vertical = ratios
+                h_ok = IRIS_H_MIN <= horizontal <= IRIS_H_MAX
+                v_ok = IRIS_V_MIN <= vertical <= IRIS_V_MAX
+                h_label = f"H {horizontal:.2f}" + ("" if h_ok else " (out)")
+                v_label = f"V {vertical:.2f}" + ("" if v_ok else " (out)")
+                labels.append(f"Eye {name}: {h_label}  {v_label}")
+                is_looking = is_looking and h_ok and v_ok
+            labels.insert(0, "Looking" if is_looking else "Away")
         color = (0, 220, 0) if is_looking else (0, 0, 255)
-        cv2.putText(annotated, label, (12, 28), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.65, color, 2, cv2.LINE_AA)
+        for row, label in enumerate(labels):
+            position = (12, 28 + 24 * row)
+            cv2.putText(annotated, label, position, cv2.FONT_HERSHEY_SIMPLEX,
+                        0.60, (0, 0, 0), 4, cv2.LINE_AA)
+            cv2.putText(annotated, label, position, cv2.FONT_HERSHEY_SIMPLEX,
+                        0.60, color, 2, cv2.LINE_AA)
         return {"is_looking": is_looking, "annotated_frame": annotated}
 
     def close(self):

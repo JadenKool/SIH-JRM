@@ -17,4 +17,15 @@ python -m pip install -r requirements.txt
 
 `python --version` should report Python 3.12.x.
 
-Run `python auto_doomscroll.py` to start, or `python auto_doomscroll.py --selftest` to test without a webcam, browser, or third-party packages. The tracker preview window opens by default and stays on top; add `--no-preview` to hide it if it takes keyboard focus from the browser and intercepts the Down presses.
+## Run the doomscroller
+
+Install Google Chrome. If your Python 3.12 environment already exists, install the current requirements. On macOS, use the environment's Python directly from the project folder.
+
+```sh
+./.venv/bin/python -m pip install -r requirements.txt
+./.venv/bin/python auto_doomscroll.py
+```
+
+On Windows, run `python auto_doomscroll.py` from the activated environment. The first launch may download a matching ChromeDriver through Selenium. The app opens Instagram Reels on the left and YouTube Shorts on the right in two Chrome windows. It sends Down to both feeds four seconds after opening them, then every four seconds while you're looking. Sign in to Instagram in the app's Chrome window if prompted. Chrome saves that session in a dedicated profile for future runs.
+
+Run `python auto_doomscroll.py --selftest` to test the timing without a webcam, browser, or third-party packages. The tracker preview window opens by default and stays on top; add `--no-preview` to hide it if it covers part of the browser windows.
