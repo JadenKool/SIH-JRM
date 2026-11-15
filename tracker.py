@@ -262,6 +262,9 @@ def _selftest():
 
     # Calibration + combined gaze.
     f = GazeFilter()
+    for _ in range(CALIBRATION_SETTLE_FRAMES):  # glances while finding the dot are thrown away
+        assert f.update(40.0, 30.0, 0.9) is None
+    assert f.samples == []
     for i in range(CALIBRATION_FRAMES - 1):
         assert f.update(2.0 + (i % 3), -10.0, 0.5) is None   # still calibrating
     assert f.update(3.0, -10.0, None) is None and len(f.samples) == CALIBRATION_FRAMES - 1  # shut eyes: no sample
@@ -280,6 +283,11 @@ def _selftest():
     assert abs(gaze) < 1e-9
     f.reset()
     assert f.center is None and f.update(0, 0, 0.5) is None
+
+    # Calibration target: dot in the exact middle, ring grows with progress.
+    blank, half = draw_calibration_target(1920, 1080, 0.0), draw_calibration_target(1920, 1080, 0.5)
+    assert blank.shape == (1080, 1920, 3) and (blank[540, 960] == 255).all()
+    assert (half != blank).any()
 
     # Decision + hysteresis.
     assert decide(0, 0, 0, False)
