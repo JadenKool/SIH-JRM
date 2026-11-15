@@ -19,6 +19,8 @@ URLS = [
     "https://www.youtube.com/shorts/",
 ]
 PREVIEW_WINDOW = "Doomscroller tracker"
+PREVIEW_WIDTH = 280         # px; small so the feeds stay visible
+PREVIEW_BOTTOM_MARGIN = 90  # shortcut: assumes a ~48 px bottom taskbar + title bar; raise if the preview is cut off
 # ----------------------------------------------------------------------
 
 
@@ -95,10 +97,15 @@ def main():
         browser = SplitBrowser()
         browser.prepare_feeds(URLS)
         if args.preview:
+            cam_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640
+            cam_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480
+            preview_size = (PREVIEW_WIDTH, int(PREVIEW_WIDTH * cam_h / cam_w))
             cv2.namedWindow(PREVIEW_WINDOW)
             cv2.setWindowProperty(PREVIEW_WINDOW, cv2.WND_PROP_TOPMOST, 1)  # pop in front on startup
+            cv2.moveWindow(PREVIEW_WINDOW, 0, pyautogui.size().height - preview_size[1] - PREVIEW_BOTTOM_MARGIN)
         s = new_state()
-        print("Doomscroller armed. Look at the screen... (Ctrl+C or mouse to top-left to stop)")
+        print("Calibrating: look at the screen for ~2 seconds. Press c in the preview to recalibrate.")
+        print("Doomscroller armed. (Ctrl+C or mouse to top-left to stop)")
         while True:
             pyautogui.failSafeCheck()
             ok, frame = cap.read()
@@ -116,8 +123,10 @@ def main():
                 elif action == "scroll":
                     browser.scroll()
             if args.preview:
-                cv2.imshow(PREVIEW_WINDOW, result["annotated_frame"])
-                cv2.waitKey(1)
+                cv2.imshow(PREVIEW_WINDOW, cv2.resize(result["annotated_frame"], preview_size,
+                                                      interpolation=cv2.INTER_AREA))
+                if cv2.waitKey(1) & 0xFF == ord("c"):
+                    tracker.recalibrate()
     except (KeyboardInterrupt, pyautogui.FailSafeException):
         print("\nDoomscroller stopped. Go touch grass.")
     except WebDriverException as exc:

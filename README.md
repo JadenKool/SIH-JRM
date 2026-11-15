@@ -30,4 +30,6 @@ On Windows, run `python auto_doomscroll.py` from the activated environment. The 
 
 Sign in to Instagram in the app's Chrome window if prompted. Chrome saves that session in a dedicated profile for future runs.
 
-Run `python auto_doomscroll.py --selftest` to test the timing without a webcam, browser, or third-party packages. The tracker preview window opens by default and stays on top; add `--no-preview` to hide it if it covers part of the browser windows.
+Run `python auto_doomscroll.py --selftest` to test the timing without a webcam, browser, or third-party packages. A small tracker preview opens in the bottom-left corner and stays on top; add `--no-preview` to hide it.
+
+**Calibration:** for the first ~2 seconds, look at the screen normally. The tracker records that head angle as "looking", then triggers on head turn (yaw) and tilt (pitch) relative to it, plus an eyes-only side-glance check. Press `c` with the preview focused to recalibrate. Tune the angle limits at the top of `tracker.py`; run `python tracker.py` to self-test the angle math.
