@@ -4,6 +4,7 @@ from pathlib import Path
 
 from selenium import webdriver
 from selenium.webdriver import ActionChains, Keys
+from selenium.common.exceptions import WebDriverException
 
 
 class SplitBrowser:
@@ -54,15 +55,37 @@ class SplitBrowser:
             driver.switch_to.window(window)
             ActionChains(driver).send_keys(Keys.ARROW_DOWN).perform()
 
-    def freeze_feeds(self, stopping):
+    def freeze_feeds(self, paused, stopping):
+        frozen = []
         for window in self.windows:
-            if stopping.is_set():
+            if stopping.is_set() or not paused.is_set():
                 break
-            self.driver.switch_to.window(window)
-            self.driver.execute_script(
-                "document.querySelectorAll('video, audio').forEach(media => media.pause());"
-            )
-            self.driver.execute_cdp_cmd("Page.setWebLifecycleState", {"state": "frozen"})
+            try:
+                self.driver.switch_to.window(window)
+                frozen.append(window)
+                self.driver.execute_script("""
+                    window.__doomscrollerPausedMedia = [...document.querySelectorAll('video, audio')]
+                        .filter(media => !media.paused && !media.ended);
+                    window.__doomscrollerPausedMedia.forEach(media => media.pause());
+                """)
+                self.driver.execute_cdp_cmd("Page.setWebLifecycleState", {"state": "frozen"})
+            except WebDriverException:
+                continue
+        return frozen
+
+    def resume_feeds(self, frozen):
+        for window in frozen:
+            try:
+                self.driver.switch_to.window(window)
+                self.driver.execute_cdp_cmd("Page.setWebLifecycleState", {"state": "active"})
+                self.driver.execute_script("""
+                    for (const media of window.__doomscrollerPausedMedia || []) {
+                        media.play().catch(() => {});
+                    }
+                    delete window.__doomscrollerPausedMedia;
+                """)
+            except WebDriverException:
+                continue
 
     def close(self):
         self.driver.quit()

@@ -129,7 +129,24 @@ def run(preview, paused=None, stopping=None, chrome_pid=None, ready=None):
         print("Calibrating: look at the dot in the middle of the screen. "
               "To recalibrate later, click the preview, then press c.")
         print("Doomscroller armed. (Ctrl+C or mouse to top-left to stop)", flush=True)
-        while paused is None or not paused.is_set():
+        while stopping is None or not stopping.is_set():
+            if paused is not None and paused.is_set():
+                if target_open:  # the kill-switch prompt must not sit under the full-screen dot
+                    cv2.destroyWindow(CALIBRATION_WINDOW)
+                    target_open = False
+                pause_started = time.monotonic()
+                frozen = browser.freeze_feeds(paused, stopping)
+                while paused.is_set() and not stopping.wait(0.02):
+                    if preview:
+                        cv2.waitKey(1)
+                if stopping.is_set():
+                    break
+                browser.resume_feeds(frozen)
+                elapsed = time.monotonic() - pause_started
+                s["next_scroll"] += elapsed
+                if s["away_since"] is not None:
+                    s["away_since"] += elapsed
+                continue
             pyautogui.failSafeCheck()
             ok, frame = cap.read()
             if not ok or (paused is not None and paused.is_set()):
@@ -167,13 +184,6 @@ def run(preview, paused=None, stopping=None, chrome_pid=None, ready=None):
                                                       interpolation=cv2.INTER_AREA))
             if cv2.waitKey(1) & 0xFF == ord("c"):
                 tracker.recalibrate()
-        if not stopping.is_set():
-            cv2.destroyAllWindows()
-            try:
-                browser.freeze_feeds(stopping)
-            except WebDriverException:
-                pass  # The countdown and shutdown are independent of Chrome.
-            stopping.wait()
     except (KeyboardInterrupt, pyautogui.FailSafeException):
         print("\nDoomscroller stopped. Go touch grass.")
     except WebDriverException as exc:
