@@ -31,3 +31,14 @@ On Windows, run `python auto_doomscroll.py` from the activated environment. The 
 Sign in to Instagram in the app's Chrome window if prompted. Chrome saves that session in a dedicated profile for future runs.
 
 Run `python auto_doomscroll.py --selftest` to test the timing without a webcam, browser, or third-party packages. The tracker preview window opens by default and stays on top; add `--no-preview` to hide it if it covers part of the browser windows.
+
+## Test the Windows kill switch
+
+Launch the doomscroller and focus either of its Chrome feed windows or the tracker preview. Press **Ctrl + Shift + Q**. The app pauses automatic scrolling and eye tracking, hides its windows, and opens the destruction prompt. The prompt has no cancel option.
+
+Restart the app between these checks.
+
+1. Enter `sih` and press Enter. The app and its feed windows should close immediately.
+2. Enter `SIH` or any other incorrect code and press Enter. The prompt should show **INVALID DESTRUCTION CODE** and close at the original 15-second deadline.
+3. Leave the prompt alone. The app should close after 15 seconds.
+4. With the app running, press the shortcut while another app is focused. The prompt should open only when you press it with a Doomscroller window focused.
